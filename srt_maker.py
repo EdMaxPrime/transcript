@@ -43,68 +43,82 @@ def convert(input):
 	directiveSpeed = re.compile("@SPEED \\d{1,6}")
 	lines = input.splitlines()
 	state = "heading"
-	timeMultiplier = 50
-	timeAdd = 0
+	defaultTimeMultiplier = 50
+	timeMultiplier = defaultTimeMultiplier
+	timeOffset = 0
+	delayNext  = 0
 	subs = [Subtitle()]
 	unknownEndTime = False
 	script = False
+	keepNames = False
 	for l in lines:
-		if state == "heading":
+		if directiveOffset.match(l):
+			timeOffset = int(l[8:])
+		elif directiveDelay.match(l):
+			if script:
+				delayNext = int(l[7:])
+			else:
+				timeOffset += int(l[7:])
+		elif directiveSpeed.match(l):
+			timeMultiplier = int(l[7:])
+		elif state == "heading":
 			unknownEndTime = False
 			if l.find("<SCRIPT>") == 0: #this is the start of a script section
 				n = subs[-1].next()
 				subs.append(n)
 				state = "time"
-				timeMultiplier = 50
+				timeMultiplier = defaultTimeMultiplier
 				script = True
-			elif directiveDelay.match(l): #this line is a delay directive
-				timeAdd = int(l[7:])
-			elif directiveSpeed.match(l): #this line is a speed directive
-				timeMultiplier = int(l[7:])
+				keepNames = False
+			elif l.find("<SCRIPT names>") == 0: #also a script section, but keep the names preceding text
+				n = subs[-1].next()
+				subs.append(n)
+				state = "time"
+				timeMultiplier = defaultTimeMultiplier
+				script = True
+				keepNames = True
 			elif isInt(l): #this is already an SRT style timed text
 				n = subs[-1].next()
 				subs.append(n)
 				state = "time"
-				timeMultiplier = 50
+				timeMultiplier = defaultTimeMultiplier
 				script = False
 		elif state == "time":
-			times = l.split(" --> ")
-			if isTime(times[0]):
+			valid = "-->" in l #true if this contains the arrow, false otherwise so it can't have two times in it
+			times = l.replace(" ", "").split("-->")
+			if valid and isTime(times[0]):
 				subs[-1].start = parseTime(times[0])
-			if isTime(times[1]):
+			if valid and isTime(times[1]):
 				subs[-1].end = parseTime(times[1])
 				unknownEndTime = False
 			else:
-				subs[-1].end = subs[-1].start.copy() #makes this a 0 length subtitle
+				subs[-1].setDuration(0) #makes this a 0 length subtitle
 				unknownEndTime = True
-			subs[-1].incrementStart(timeAdd)
-			subs[-1].incrementEnd(timeAdd)
-			state = "text"
-		elif state == "text":
-			if l == '</SCRIPT>' and script:
+			subs[-1].adjustTime(timeOffset) #account for time offset
+			state = "script" if script else "text"
+		elif state == "script":
+			if l == '</SCRIPT>':
 				script = False
-				timeAdd = 0
 				state = "heading"
-			elif l != "":
-				if directiveDelay.match(l): #this line is a delay command
-					timeAdd = int(l[7:])
-				elif directiveSpeed.match(l): #this line is a speed command
-					timeMultiplier = int(l[7:])
-				else: #this line is actual subtitle text
-					if script and ": " in l: #get rid of speaker's name
-						l = l.split(": ", 2)[-1]
-					if len(subs[-1].text) != 0: #add newline if necessary
-						subs[-1].text += "\n"
-					subs[-1].text += l #add text to subtitle
-					if unknownEndTime:
-						subs[-1].incrementEnd(len(l) * timeMultiplier)
-						timeMultiplier = 50
-					if script:
-						timeMultiplier = 50
-						unknownEndTime = True
-						subs[-1].incrementStart(timeAdd)
-						subs[-1].incrementEnd(timeAdd)
-						subs.append(subs[-1].next())
+			else:
+				if not keepNames:
+					l = l.split(": ", 2)[-1]
+				subs[-1].text += l #add text to subtitle
+				if unknownEndTime:
+					subs[-1].setDuration(len(l) * timeMultiplier)
+				timeMultiplier = defaultTimeMultiplier
+				unknownEndTime = True
+				subs[-1].adjustTime(delayNext)
+				subs.append(subs[-1].next())
+				delayNext = 0
+		elif state == "text":
+			if l != "":
+				if len(subs[-1].text) != 0: #add newline if necessary
+					subs[-1].text += "\n"
+				subs[-1].text += l #add text to subtitle
+				if unknownEndTime:
+					subs[-1].adjustEnd(len(l) * timeMultiplier)
+					timeMultiplier = defaultTimeMultiplier
 			else:
 				state = "heading"
 	return "\n".join([x.toString() for x in subs[1:]])
@@ -117,13 +131,11 @@ def isInt(thing):
 	except:
 		return False
 
+#Returns true if the string is a time like HH:MM:SS,LLL where L is a millisecond
 def isTime(thing):
-	try:
-		parseTime(thing)
-		return True
-	except:
-		return False
+	return re.match("\\d\\d:\\d\\d:\\d\\d,\\d{3}", thing)
 
+#Returns a Time object given a string where isTime(string) = True
 def parseTime(s):
 	array4 = [int(s[0:2]), int(s[3:5]), int(s[6:8]), int(s[9:12])]
 	return Time(array4[0], array4[1], array4[2], array4[3])
@@ -141,7 +153,7 @@ class Time:
 		self.l = millis
 
 	def addTime(self, millis):
-		total = self.l + self.s * 1000 + self.m * 1000 * 60 + self.h * 1000 * 60 * 60
+		total = self.toMillis()
 		total += millis
 		self.l = total % 1000
 		total /= 1000
@@ -151,30 +163,52 @@ class Time:
 		total /= 60
 		self.h = total % 100
 
+	def toMillis(self):
+		return self.l + self.s * 1000 + self.m * 1000 * 60 + self.h * 1000 * 60 * 60
+
+	def difference(self, otherTime):
+		return otherTime.toMillis() - self.toMillis()
+
 	def copy(self):
 		return Time(self.h, self.m, self.s, self.l)
 
 	def toString(self):
 		return "{:0>2}:{:0>2}:{:0>2},{:0>3}".format(self.h, self.m, self.s, self.l)
 
-#Actual Code of this Script
+#Each subtitle object holds one subtitle, which can then be turned into SRT format
 class Subtitle:
 	index = 1
 	start = Time()
 	end = Time()
 	text = ""
 
+	# @param i  the index of this subtitle in the entire transcript
+	# @param s  the time that this subtitle appears on screen
+	# @param e  the time that this subtitle ends
+	# @param t  the actual text of this subtitle, can contain newlines
 	def __init__(self, i=1, s=Time(), e=Time(), t=""):
 		self.index = i
 		self.start = s
 		self.end   = e
 		self.text  = t
 
-	def incrementStart(self, millis):
+	def adjustStart(self, millis):
 		self.start.addTime(millis)
 
-	def incrementEnd(self, millis):
+	def adjustEnd(self, millis):
 		self.end.addTime(millis)
+
+	#Gives an offset to this subtitle
+	def adjustTime(self, millis):
+		self.adjustStart(millis)
+		self.adjustEnd(millis)
+
+	#Adjusts the end time of this subtitle to be <millis> milliseconds after the start time
+	def setDuration(self, millis):
+		self.adjustEnd(millis - self.getDuration())
+
+	def getDuration(self):
+		return self.start.difference(self.end)
 
 	def getStart(self):
 		return self.start.toString()
@@ -182,9 +216,10 @@ class Subtitle:
 	def getEnd(self):
 		return self.end.toString()
 
+	#Returns a template for the next subtitle in the series. Index is increased by one, duration is 100 milliseconds, and it starts right when this one ended.
 	def next(self):
 		n = Subtitle(i=(self.index + 1), s=self.end.copy(), e=self.end.copy())
-		n.incrementEnd(100)
+		n.adjustEnd(100)
 		return n
 
 	def toString(self):
