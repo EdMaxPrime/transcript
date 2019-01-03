@@ -41,12 +41,17 @@ def convert(input):
 	directiveOffset = re.compile("@OFFSET [+-]?\\d{1,9}")
 	directiveDelay = re.compile("@DELAY [+-]?\\d{1,9}")
 	directiveSpeed = re.compile("@SPEED \\d{1,6}")
+	directiveDefaultSpeed = re.compile("@SPEED = \\d{1,6}")
+	directiveGap = re.compile("@GAP \\d{1,6}")
+	directiveExtend1 = re.compile("@EXTEND [+-]?\\d{1,6}") #extend by milliseconds
+	directiveExtend2 = re.compile("@EXTEND \\d\\d:\\d\\d:\\d\\d,\\d{3}") #extend to specific endpoint
 	lines = input.splitlines()
 	state = "heading"
 	defaultTimeMultiplier = 50
 	timeMultiplier = defaultTimeMultiplier
 	timeOffset = 0
 	delayNext  = 0
+	gap        = 0
 	subs = [Subtitle()]
 	unknownEndTime = False
 	script = False
@@ -61,6 +66,11 @@ def convert(input):
 				timeOffset += int(l[7:])
 		elif directiveSpeed.match(l):
 			timeMultiplier = int(l[7:])
+		elif directiveDefaultSpeed.match(l):
+			defaultTimeMultiplier = int(l[9:])
+			timeMultiplier = defaultTimeMultiplier
+		elif directiveGap.match(l):
+			gap = int(l[5:])
 		elif state == "heading":
 			unknownEndTime = False
 			if l.find("<SCRIPT>") == 0: #this is the start of a script section
@@ -84,7 +94,7 @@ def convert(input):
 				timeMultiplier = defaultTimeMultiplier
 				script = False
 		elif state == "time":
-			valid = "-->" in l #true if this contains the arrow, false otherwise so it can't have two times in it
+			valid = "-->" in l                       #true if this contains the arrow, false otherwise so it can't have two times in it
 			times = l.replace(" ", "").split("-->")
 			if valid and isTime(times[0]):
 				subs[-1].start = parseTime(times[0])
@@ -92,31 +102,31 @@ def convert(input):
 				subs[-1].end = parseTime(times[1])
 				unknownEndTime = False
 			else:
-				subs[-1].setDuration(0) #makes this a 0 length subtitle
+				subs[-1].setDuration(0)              #makes this a 0 length subtitle because we don't know when it ends
 				unknownEndTime = True
-			subs[-1].adjustTime(timeOffset) #account for time offset
+			subs[-1].adjustTime(timeOffset)          #account for time offset
 			state = "script" if script else "text"
 		elif state == "script":
 			if l == '</SCRIPT>':
 				script = False
 				state = "heading"
 			else:
-				if not keepNames:
+				if not keepNames:                     #remove names from subtitles if that option was not set
 					l = l.split(": ", 2)[-1]
-				subs[-1].text += l #add text to subtitle
+				subs[-1].text += l                    #add text to subtitle
 				if unknownEndTime:
 					subs[-1].setDuration(len(l) * timeMultiplier)
 				timeMultiplier = defaultTimeMultiplier
 				unknownEndTime = True
-				subs[-1].adjustTime(delayNext)
-				subs.append(subs[-1].next())
-				delayNext = 0
+				subs[-1].adjustTime(delayNext + gap)  #move this subtitle forward/backward in time based on the current gap between subtitles and the delay specified by @DELAY
+				subs.append(subs[-1].next())          #add next subtitle to the chain
+				delayNext = 0                         #reset delay because in a script section the times are relative to one another so no absolute times need to be adjusted
 		elif state == "text":
 			if l != "":
-				if len(subs[-1].text) != 0: #add newline if necessary
+				if len(subs[-1].text) != 0:           #add newline if this is a multiline subtitle
 					subs[-1].text += "\n"
-				subs[-1].text += l #add text to subtitle
-				if unknownEndTime:
+				subs[-1].text += l                    #add text to subtitle
+				if unknownEndTime:                    #if the end time is not specified, then approximate based on the speaking speed and length of text
 					subs[-1].adjustEnd(len(l) * timeMultiplier)
 					timeMultiplier = defaultTimeMultiplier
 			else:
