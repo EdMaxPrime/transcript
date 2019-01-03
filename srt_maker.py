@@ -37,6 +37,7 @@ def main():
 		f.write(converted)
 		f.close()
 
+#input should be a string; returns a string
 def convert(input):
 	directiveOffset = re.compile("@OFFSET [+-]?\\d{1,9}")
 	directiveDelay = re.compile("@DELAY [+-]?\\d{1,9}")
@@ -50,7 +51,6 @@ def convert(input):
 	defaultTimeMultiplier = 50
 	timeMultiplier = defaultTimeMultiplier
 	timeOffset = 0
-	delayNext  = 0
 	gap        = 0
 	subs = [Subtitle()]
 	unknownEndTime = False
@@ -58,12 +58,14 @@ def convert(input):
 	keepNames = False
 	for l in lines:
 		if directiveOffset.match(l):
-			timeOffset = int(l[8:])
+			newOffset = int(l[8:])
+			if script:
+				subs[-1].adjustTime(newOffset - timeOffset)
+			timeOffset = newOffset
 		elif directiveDelay.match(l):
 			if script:
-				delayNext = int(l[7:])
-			else:
-				timeOffset += int(l[7:])
+				subs[-1].adjustTime(int(l[7:]))
+			timeOffset += int(l[7:])
 		elif directiveSpeed.match(l):
 			timeMultiplier = int(l[7:])
 		elif directiveDefaultSpeed.match(l):
@@ -118,9 +120,8 @@ def convert(input):
 					subs[-1].setDuration(len(l) * timeMultiplier)
 				timeMultiplier = defaultTimeMultiplier
 				unknownEndTime = True
-				subs[-1].adjustTime(delayNext + gap)  #move this subtitle forward/backward in time based on the current gap between subtitles and the delay specified by @DELAY
+				subs[-1].adjustTime(gap)              #move this subtitle forward/backward in time based on the current gap between subtitles
 				subs.append(subs[-1].next())          #add next subtitle to the chain
-				delayNext = 0                         #reset delay because in a script section the times are relative to one another so no absolute times need to be adjusted
 		elif state == "text":
 			if l != "":
 				if len(subs[-1].text) != 0:           #add newline if this is a multiline subtitle

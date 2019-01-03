@@ -72,17 +72,15 @@ Will produce the following output:
 
 Note: all directives **must** be on their own lines. No whitespace, leading or trailing, is allowed.
 
-`@OFFSET <millis>` pushes back all subsequent subtitles by the time given in milliseconds. The number of milliseconds can be positive or negative, and 0 means that the times in the file will be used instead. Has no effect inside a script section, use delay instead.
+`@OFFSET <millis>` pushes back all subsequent subtitles by the time given in milliseconds. The number of milliseconds can be positive or negative, and 0 means that the times hardcoded in the file will be used instead.
 
-`@DELAY <millis>` this adjusts the time offset by the given amount of milliseconds. The number of milliseconds can be positive or negative, but 0 has no effect. Works the same inside and outside of script sections.
+`@DELAY <millis>` this adjusts the time offset by the given amount of milliseconds. The number of milliseconds can be positive or negative, but 0 has no effect.
 
 `@SPEED <millis>` this adjusts the duration calculation for the next subtitle. If no end time is specified for any subtitle, the formula `number_of_characters_in_subtitle_text * speed` is used. This speed directive changes the speed factor from the default one to another amount.
 
 `@SPEED = <millis>` sets the default speed factor to the specified number of milliseconds. Default is 50.
 
 `@GAP <millis>` sets the gap between subtitles in milliseconds. By default this is 0
-
-`@EXTEND <millis|time>` extends the next subtitle's end time by the given amount of milliseconds or to the given time. All subsequent subtitles are pushed back in time by that many milliseconds.
 
 `<SCRIPT>` starts a script section where lines are in the format:
 
