@@ -24,6 +24,13 @@ def main():
 		will increase or decrease the time offset by the specified time.
 	@SPEED <time in milliseconds>
 		will change how long each letter increments the duration of the next subtitle. Default 50. Resets for each subtitle.
+	@SPEED = <time in milliseconds>
+		changes the default speed factor for all subsequent subtitles
+	@GAP <time in milliseconds>
+		sets the gap time in between subtitles. Default 0.
+	@EXTEND <time in milliseconds>
+	@EXTEND <HH:MM:SS:mmm>
+		extend the previous subtitle's duration by a number of milliseconds or make it end at the specified time.
 	"""
 	if len(sys.argv) != 3:
 		print helpText
@@ -44,7 +51,7 @@ def convert(input):
 	directiveSpeed = re.compile("@SPEED \\d{1,6}")
 	directiveDefaultSpeed = re.compile("@SPEED = \\d{1,6}")
 	directiveGap = re.compile("@GAP \\d{1,6}")
-	directiveExtend1 = re.compile("@EXTEND [+-]?\\d{1,6}") #extend by milliseconds
+	directiveExtend1 = re.compile("@EXTEND [+-]?\\d{1,6}$") #extend by milliseconds
 	directiveExtend2 = re.compile("@EXTEND \\d\\d:\\d\\d:\\d\\d,\\d{3}") #extend to specific endpoint
 	lines = input.splitlines()
 	state = "heading"
@@ -73,6 +80,19 @@ def convert(input):
 			timeMultiplier = defaultTimeMultiplier
 		elif directiveGap.match(l):
 			gap = int(l[5:])
+		elif directiveExtend1.match(l):
+			i = -2 if script else -1
+			ext = int(l[8:])
+			subs[i].setDuration(max(0, subs[i].getDuration() + ext))
+			if script:
+				subs[-1].adjustTime(ext)
+		elif directiveExtend2.match(l):
+			if script:
+				ext = subs[-2].end.difference(parseTime(l[8:]))
+				subs[-2].setDuration(subs[-2].getDuration() + ext)
+				subs[-1].adjustTime(ext)
+			else:
+				subs[-1].end = parseTime(l[8:])
 		elif state == "heading":
 			unknownEndTime = False
 			if l.find("<SCRIPT>") == 0: #this is the start of a script section
